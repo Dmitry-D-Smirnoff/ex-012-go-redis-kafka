@@ -4,6 +4,7 @@ import (
 	"ex-012-go-redis-kafka/util"
 	"fmt"
 	"github.com/gorilla/mux"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"log"
 	"net/http"
 	"os"
@@ -15,23 +16,37 @@ type valueEx struct {
 	Email string
 }
 
+type LogEntry struct {
+	Operation  string             `bson:"operation" json:"operation"`
+	AppEntity  string             `bson:"app_entity" json:"appEntity"`
+	EntityName string             `bson:"entity_name" json:"entityName"`
+	CreateDate primitive.DateTime `bson:"create_date" json:"createDate"`
+}
+
+
 func main() {
 	redisClient := util.InitRedis()
-	key1 := "key01"+time.Now().String()
-	value1 := &valueEx{Name: "someName", Email: "someemail@abc.com"}
+	key1 := "time."+time.Now().Format("20060102.150405.000000000")
+	value1 := &LogEntry{
+		Operation:  "Update",
+		AppEntity:  "Account",
+		EntityName: "Jenny",
+		CreateDate: primitive.NewDateTimeFromTime(time.Now()),
+	}
+
 	err := redisClient.SetKey(key1, value1, time.Hour*3000)
 	if err != nil {
 		log.Fatalf("Error: %v", err.Error())
 	}
 
-	value2 := &valueEx{}
+	value2 := &LogEntry{}
 	err = redisClient.GetKey(key1, value2)
 	if err != nil {
 		log.Fatalf("Error: %v", err.Error())
 	}
 
-	log.Printf("Name: %s", value2.Name)
-	log.Printf("Email: %s", value2.Email)
+	log.Printf("Update: %s", value2.AppEntity)
+	log.Printf("Email: %s", value2.EntityName)
 
 	router := mux.NewRouter()
 	router.HandleFunc("/api/log/recent/{limit}", util.GetLastLogEntries).Methods("GET")
