@@ -1,23 +1,18 @@
 package main
 
 import (
-	"ex-012-go-redis-kafka/kafka"
-	"ex-012-go-redis-kafka/redis"
+	"ex-012-go-redis-kafka/util"
 	"fmt"
-	"github.com/CrowdSurge/banner"
 	"github.com/gorilla/mux"
-	"log"
 	"net/http"
 	"os"
-	"strconv"
 )
 
 func main() {
 
-/*
 	router := mux.NewRouter()
-	router.HandleFunc("/api/log/recent/{limit}", controller.GetLastLogEntries).Methods("GET")
-	router.NotFoundHandler = http.HandlerFunc(app.HandleNotFound)
+	router.HandleFunc("/api/log/recent/{limit}", util.GetLastLogEntries).Methods("GET")
+	router.NotFoundHandler = http.HandlerFunc(util.HandleNotFound)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -27,7 +22,7 @@ func main() {
 	if err != nil {
 		fmt.Print(err)
 	}
-*/
+/*
 
 	if len(os.Args) > 2{
 		if os.Args[1] == "populate"{
@@ -60,11 +55,10 @@ func main() {
 	if port == "" {
 		port = "4000" //localhost
 	}
-	//err := http.ListenAndServe(":" + port, router)
-	//TODO: change nil HANDLER to router ???
 	err := http.ListenAndServe(":" + port, nil)
 	if err != nil {
 		log.Printf("Server error %v :", err)
 	}
 	log.Println("Video-Feed Listening on :4000")
+   */
 }
