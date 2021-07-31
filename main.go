@@ -1,20 +1,19 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"ex-012-go-redis-kafka/util"
 	"fmt"
+	"github.com/Shopify/sarama"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"time"
 )
-
-type valueEx struct {
-	Name  string
-	Email string
-}
 
 type LogEntry struct {
 	Operation  string             `bson:"operation" json:"operation"`
@@ -23,8 +22,84 @@ type LogEntry struct {
 	CreateDate primitive.DateTime `bson:"create_date" json:"createDate"`
 }
 
+const (
+	kafkaConn = "ex-012-go-redis-kafka-dmitry-8002.aivencloud.com:25925"
+	topic = "message-log"
+)
+
+func initProducer()(sarama.SyncProducer, error) {
+
+	keypair, err := tls.LoadX509KeyPair("C:\\Users\\sdd\\Downloads\\_VPN_KEYS\\Kafka\\service.cert",
+		"C:\\Users\\sdd\\Downloads\\_VPN_KEYS\\Kafka\\service.key")
+	if err != nil {
+		log.Println(err)
+		return nil, err
+	}
+
+	caCert, err := ioutil.ReadFile("C:\\Users\\sdd\\Downloads\\_VPN_KEYS\\Kafka\\ca.pem")
+	if err != nil {
+		log.Println(err)
+		return nil, err
+	}
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{keypair},
+		RootCAs: caCertPool,
+	}
+
+	// init config, enable errors and notifications
+	config := sarama.NewConfig()
+	config.Producer.Return.Successes = true
+	config.Net.TLS.Enable = true
+	config.Net.TLS.Config = tlsConfig
+	config.Version = sarama.V0_10_2_0
+
+	// init producer
+	brokers := []string{"my-kafka-service-my-aiven-project.aivencloud.com:12233"}
+	producer, err := sarama.NewSyncProducer(brokers, config)
+	if err != nil {
+		panic(err)
+	}
+
+	return producer, err
+}
+
+func publish(message string, producer sarama.SyncProducer) {
+	// publish sync
+	msg := &sarama.ProducerMessage {
+		Topic: topic,
+		Value: sarama.StringEncoder(message),
+	}
+	p, o, err := producer.SendMessage(msg)
+	if err != nil {
+		fmt.Println("Error publish: ", err.Error())
+	}
+
+	// publish async
+	//producer.Input() <- &sarama.ProducerMessage{
+
+	fmt.Println("Partition: ", p)
+	fmt.Println("Offset: ", o)
+}
 
 func main() {
+
+	// create producer
+	producer, err := initProducer()
+	if err != nil {
+		fmt.Println("Error producer: ", err.Error())
+		os.Exit(1)
+	}
+
+	publish("HI! Kafka", producer)
+
+
+
+
+
+
 	redisClient := util.InitRedis()
 	key1 := "time."+time.Now().Format("20060102.150405.000000000")
 	value1 := &LogEntry{
@@ -34,7 +109,7 @@ func main() {
 		CreateDate: primitive.NewDateTimeFromTime(time.Now()),
 	}
 
-	err := redisClient.SetKey(key1, value1, time.Hour*3000)
+	err = redisClient.SetKey(key1, value1, time.Hour*3000)
 	if err != nil {
 		log.Fatalf("Error: %v", err.Error())
 	}
