@@ -27,19 +27,19 @@ const (
 	topic = "message-log"
 )
 
-func initProducer()(sarama.SyncProducer, error) {
+func initProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 
 	keypair, err := tls.LoadX509KeyPair("C:\\Users\\sdd\\Downloads\\_VPN_KEYS\\Kafka\\service.cert",
 		"C:\\Users\\sdd\\Downloads\\_VPN_KEYS\\Kafka\\service.key")
 	if err != nil {
 		log.Println(err)
-		return nil, err
+		return nil, nil, err
 	}
 
 	caCert, err := ioutil.ReadFile("C:\\Users\\sdd\\Downloads\\_VPN_KEYS\\Kafka\\ca.pem")
 	if err != nil {
 		log.Println(err)
-		return nil, err
+		return nil, nil, err
 	}
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
@@ -80,8 +80,12 @@ func initProducer()(sarama.SyncProducer, error) {
 	if err != nil {
 		panic(err)
 	}
+	//TODO: For async:
+	//producer, err := sarama.NewAsyncProducer(brokers, config)
 
-	return producer, err
+	consumer, err := sarama.NewConsumer(brokers, config)
+
+	return producer, consumer, err
 }
 
 func publish(message string, producer sarama.SyncProducer) {
@@ -99,23 +103,51 @@ func publish(message string, producer sarama.SyncProducer) {
 	//producer.Input() <- &sarama.ProducerMessage{
 
 	fmt.Println("Partition: ", p)
-	fmt.Println("Offset: ", o)
+	fmt.Printf("Offset: %d -> %d\n", o, o+1)
+}
+
+func consume(consumer sarama.Consumer) chan *sarama.ConsumerMessage {
+
+	partitionList, err := consumer.Partitions(topic) //get all partitions
+	if err != nil {
+		fmt.Println("Error consuming: ", err.Error())
+	}
+
+	messages := make(chan *sarama.ConsumerMessage, 256)
+	initialOffset := sarama.OffsetOldest //offset to start reading message from
+	for _, partition := range partitionList {
+		pc, _ := consumer.ConsumePartition(topic, partition, initialOffset)
+		go func(pc sarama.PartitionConsumer) {
+			for message := range pc.Messages() {
+				messages <- message //or call a function that writes to disk
+			}
+		}(pc)
+	}
+
+	return messages
 }
 
 func main() {
 
 	// create producer
-	producer, err := initProducer()
+	producer, consumer, err := initProducer()
 	if err != nil {
 		fmt.Println("Error producer: ", err.Error())
 		os.Exit(1)
 	}
 
-	publish("HI! Kafka", producer)
+	publish("time."+time.Now().Format("20060102.150405.000000000"), producer)
 
+	messages := consume(consumer)
+	for message := range messages{
+		switch message.Topic {
+		case topic:
+			fmt.Println(string(message.Value))
+			break
+			// ...
+		}
 
-
-
+	}
 
 
 	redisClient := util.InitRedis()
@@ -138,8 +170,8 @@ func main() {
 		log.Fatalf("Error: %v", err.Error())
 	}
 
-	fmt.Println("Update: %s", value2.AppEntity)
-	fmt.Println("Email: %s", value2.EntityName)
+	fmt.Println("Update: " + value2.AppEntity)
+	fmt.Println("Email: " + value2.EntityName)
 
 	router := mux.NewRouter()
 	router.HandleFunc("/api/log/recent/{limit}", util.GetLastLogEntries).Methods("GET")
