@@ -57,7 +57,25 @@ func initProducer()(sarama.SyncProducer, error) {
 	config.Version = sarama.V0_10_2_0
 
 	// init producer
-	brokers := []string{"my-kafka-service-my-aiven-project.aivencloud.com:12233"}
+	// AIVEN BROKER 1:
+	//    SSL://35.228.129.49:25925,
+	//    PLAINTEXT://ex-012-go-redis-kafka-1.aiven.local:25924,
+	//    INTERNAL://[fda7:a938:5bfe:5fa6::a]:25932,
+	//    SSL_PUBLIC://35.228.129.49:25935,
+	//    SASL_SSL://35.228.129.49:25936
+	// AIVEN BROKER 2:
+	//    SSL://35.228.158.97:25925,
+	//    PLAINTEXT://ex-012-go-redis-kafka-2.aiven.local:25924,
+	//    INTERNAL://[fda7:a938:5bfe:5fa6::b]:25932,
+	//    SSL_PUBLIC://35.228.158.97:25935,
+	//    SASL_SSL://35.228.158.97:25936
+	// AIVEN BROKER 3:
+	//    SSL://35.228.15.106:25925,
+	//    PLAINTEXT://ex-012-go-redis-kafka-3.aiven.local:25924,
+	//    INTERNAL://[fda7:a938:5bfe:5fa6::c]:25932,
+	//    SSL_PUBLIC://35.228.15.106:25935,
+	//    SASL_SSL://35.228.15.106:25936
+	brokers := []string{"35.228.129.49:25925","35.228.158.97:25925","35.228.15.106:25925"}
 	producer, err := sarama.NewSyncProducer(brokers, config)
 	if err != nil {
 		panic(err)
@@ -120,8 +138,8 @@ func main() {
 		log.Fatalf("Error: %v", err.Error())
 	}
 
-	log.Printf("Update: %s", value2.AppEntity)
-	log.Printf("Email: %s", value2.EntityName)
+	fmt.Println("Update: %s", value2.AppEntity)
+	fmt.Println("Email: %s", value2.EntityName)
 
 	router := mux.NewRouter()
 	router.HandleFunc("/api/log/recent/{limit}", util.GetLastLogEntries).Methods("GET")
