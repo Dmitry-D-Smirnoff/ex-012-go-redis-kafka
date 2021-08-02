@@ -1,19 +1,14 @@
-package main
+package data
 
 import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"ex-012-go-redis-kafka/data"
-	"ex-012-go-redis-kafka/util"
 	"fmt"
 	"github.com/Shopify/sarama"
-	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"io/ioutil"
 	"log"
-	"net/http"
-	"os"
 	"sync"
 	"time"
 )
@@ -31,12 +26,12 @@ const (
 	mongoBufferSize = 5
 )
 
-func initProducer()(sarama.SyncProducer, sarama.Consumer, error) {
+func InitProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 
 	//TODO: if fails restore 3 paths to: C:\Users\d.smirnov\Downloads\_VPN_KEYS\Kafka\
 	//serviceCertPath, err := filepath.Abs("./service.cert")
 	//fmt.Println(serviceCertPath)
-	keypair, err := tls.LoadX509KeyPair("./service.cert",
+	keypair, err := tls.LoadX509KeyPair("service.cert",
 		"service.key")
 	if err != nil {
 		log.Println(err)
@@ -95,7 +90,7 @@ func initProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 	return producer, consumer, err
 }
 
-func publish(logEntry LogEntry, producer sarama.SyncProducer) {
+func Publish(logEntry LogEntry, producer sarama.SyncProducer) {
 
 	byteLogMessage, err := json.Marshal(logEntry)
 	if err != nil {
@@ -119,60 +114,77 @@ func publish(logEntry LogEntry, producer sarama.SyncProducer) {
 	fmt.Printf("Offset: %d -> %d\n", o, o+1)
 }
 
-func consume(consumer sarama.Consumer) (chan *sarama.ConsumerMessage, []chan LogEntry) {
+func Consume(consumer sarama.Consumer) chan *sarama.ConsumerMessage {
 
 	partitionList, err := consumer.Partitions(topic) //get all partitions
 	if err != nil {
 		fmt.Println("Error consuming: ", err.Error())
 	}
 
-	fmt.Println("Partitions" + string(partitionList))
-
 	messages := make(chan *sarama.ConsumerMessage, 256)
-	channels := make([]chan LogEntry, len(partitionList))
-	initialOffset := sarama.OffsetOldest //offset to start reading message from
-	for i, partition := range partitionList {
-		fmt.Println("Partition " + string(i))
+	initialOffset := sarama.OffsetNewest //offset to start reading message from
+	for _, partition := range partitionList {
 		pc, _ := consumer.ConsumePartition(topic, partition, initialOffset)
 		go func(pc sarama.PartitionConsumer) {
-			channels[i] = make(chan LogEntry)
 			for message := range pc.Messages() {
-				var content LogEntry
-				err := json.Unmarshal(message.Value, &content)
-				if err != nil {
-					content = LogEntry{
-						Operation:  "BadMessage",
-						AppEntity:  "NoEntity",
-						EntityName: string(message.Value),
-						CreateDate: primitive.NewDateTimeFromTime(time.Now()),
-					}
-				}
-				channels[i] <- content
 				messages <- message //or call a function that writes to disk
 			}
 		}(pc)
 	}
 
-	return messages, channels
+	return messages
 }
 
-func merge(cs []chan LogEntry) <-chan LogEntry {
+func getTimeKey() string{
+	return "time."+time.Now().Format("20060102.150405.000000000")
+}
+
+func ProcessMessages(redisCl *LogRedisClient, messageCh chan *sarama.ConsumerMessage, resultCh chan *LogEntry, id int){
+	for message := range messageCh {
+		switch message.Topic {
+		case topic:
+			var content LogEntry
+			err := json.Unmarshal(message.Value, &content)
+			if err != nil {
+				content = LogEntry{
+					Operation:  "BadMessage",
+					AppEntity:  "NoEntity",
+					EntityName: string(message.Value),
+					CreateDate: primitive.NewDateTimeFromTime(time.Now()),
+				}
+			}
+			currentKey := getTimeKey()
+			err = redisCl.SetKey(currentKey, &content, time.Hour*3000)
+			if err != nil {
+				log.Fatalf("Error: %v", err.Error())
+			}
+			fmt.Printf("Processor #%d: Message saved to Redis with key = %s\n", id, currentKey)
+			resultCh <- &content
+			break
+		default:
+			fmt.Println("!!! Unknown Message. Not saved.")
+		}
+	}
+}
+
+func Merge(cs []chan *LogEntry) chan *LogEntry {
 	var wg sync.WaitGroup
-	out := make(chan LogEntry, mongoBufferSize)
+	out := make(chan *LogEntry, mongoBufferSize)
 
 	// Start an output goroutine for each input channel in cs.  output
 	// copies values from c to out until c is closed, then calls wg.Done.
-	output := func(c <-chan LogEntry) {
+	output := func(c chan *LogEntry, id int) {
+		fmt.Printf("Collector #%d: is ready\n", id)
 		for n := range c {
+			fmt.Printf("Collector #%d: value transferred\n", id)
 			out <- n
 		}
 		wg.Done()
 	}
 	wg.Add(len(cs))
-	for _, c := range cs {
-		go output(c)
+	for i, c := range cs {
+		go output(c, i)
 	}
-
 	// Start a goroutine to close out once all the output goroutines are
 	// done.  This must start after the wg.Add call.
 	go func() {
@@ -182,107 +194,9 @@ func merge(cs []chan LogEntry) <-chan LogEntry {
 	return out
 }
 
-func main() {
+func FinishProcessing(resultCh chan *LogEntry){
 
-	redisKey1 := "time."+time.Now().Format("20060102.150405.000000000")
-	redisValue1 := LogEntry{
-		Operation:  "Update",
-		AppEntity:  "Account",
-		EntityName: "Jenny",
-		CreateDate: primitive.NewDateTimeFromTime(time.Now()),
+	for logEntry := range resultCh {
+		fmt.Println("Finisher: saved to MongoDB: log entry with createTime = ", logEntry.CreateDate.Time().String())
 	}
-
-	// create producer
-	producer, consumer, err := initProducer()
-	if err != nil {
-		fmt.Println("Error producer: ", err.Error())
-		os.Exit(1)
-	}
-
-	publish(redisValue1, producer)
-
-	messages, channels := consume(consumer)
-	for message := range messages{
-		switch message.Topic {
-		case topic:
-			fmt.Println(string(message.Value))
-			break
-			// ...
-		}
-
-	}
-
-	resultChannel := merge(channels)
-	for logEntry := range resultChannel{
-		fmt.Println(logEntry.EntityName)
-	}
-
-
-	redisClient := data.InitRedis()
-
-	err = redisClient.SetKey(redisKey1, &redisValue1, time.Hour*3000)
-	if err != nil {
-		log.Fatalf("Error: %v", err.Error())
-	}
-
-	value2 := LogEntry{}
-	err = redisClient.GetKey(redisKey1, &value2)
-	if err != nil {
-		log.Fatalf("Error: %v", err.Error())
-	}
-
-	fmt.Println("Update: " + value2.AppEntity)
-	fmt.Println("Email: " + value2.EntityName)
-
-	router := mux.NewRouter()
-	router.HandleFunc("/api/log/recent/{limit}", util.GetLastLogEntries).Methods("GET")
-	router.NotFoundHandler = http.HandlerFunc(util.HandleNotFound)
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8000" //localhost
-	}
-	err = http.ListenAndServe(":" + port, router)
-	if err != nil {
-		fmt.Print(err)
-	}
-/*
-
-	if len(os.Args) > 2{
-		if os.Args[1] == "populate"{
-			numRecords,err := strconv.Atoi(os.Args[2])
-			if err!=nil{
-				fmt.Println( "Could not convert arguments provided, hence creating four entries")
-				numRecords = 4
-			}
-			redis.Populate(numRecords)
-			return
-		}
-	}
-
-	router := mux.NewRouter()
-	router.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Pong !!\n"))
-	})
-	router.HandleFunc("/detail/{id}", VideoHandler)
-	router.HandleFunc("/like/{id}", LikeHandler)
-	router.HandleFunc("/popular/{num[0-9]+}", PopularHandler)
-	http.Handle("/", router)
-	banner.Print("video-feed")
-
-	log.Println("Initializing redis pool: ")
-	redis.Init()
-	go data.InitProducer()
-	go data.Consumer([]string{"likes", "upload"})
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "4000" //localhost
-	}
-	err := http.ListenAndServe(":" + port, nil)
-	if err != nil {
-		log.Printf("Server error %v :", err)
-	}
-	log.Println("Video-Feed Listening on :4000")
-   */
 }

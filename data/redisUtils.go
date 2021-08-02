@@ -1,4 +1,4 @@
-package util
+package data
 
 import (
 	"encoding/json"
@@ -7,15 +7,15 @@ import (
 )
 
 var (
-	client = &redisClient{}
+	client = &LogRedisClient{}
 )
 
-type redisClient struct {
+type LogRedisClient struct {
 	c *redis.Client
 }
 
 //GetClient get the redis client
-func InitRedis() *redisClient {
+func InitRedis() *LogRedisClient {
 	c := redis.NewClient(&redis.Options{
 		Addr:     "redis-12817.c275.us-east-1-4.ec2.cloud.redislabs.com:12817", // host:port of the redis server
 		Password: "sddsddsdd", // no password set
@@ -30,7 +30,7 @@ func InitRedis() *redisClient {
 }
 
 //GetKey get key
-func (client *redisClient) GetKey(key string, src interface{}) error {
+func (client *LogRedisClient) GetKey(key string, src interface{}) error {
 	val, err := client.c.Get(key).Result()
 	if err == redis.Nil || err != nil {
 		return err
@@ -43,7 +43,7 @@ func (client *redisClient) GetKey(key string, src interface{}) error {
 }
 
 //SetKey set key
-func (client *redisClient) SetKey(key string, value interface{}, expiration time.Duration) error {
+func (client *LogRedisClient) SetKey(key string, value interface{}, expiration time.Duration) error {
 	cacheEntry, err := json.Marshal(value)
 	if err != nil {
 		return err
