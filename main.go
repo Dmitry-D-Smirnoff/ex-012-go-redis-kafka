@@ -33,7 +33,9 @@ const (
 func initProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 
 	//TODO: if fails restore 3 paths to: C:\Users\d.smirnov\Downloads\_VPN_KEYS\Kafka\
-	keypair, err := tls.LoadX509KeyPair("service.cert",
+	//serviceCertPath, err := filepath.Abs("./service.cert")
+	//fmt.Println(serviceCertPath)
+	keypair, err := tls.LoadX509KeyPair("./service.cert",
 		"service.key")
 	if err != nil {
 		log.Println(err)
@@ -124,10 +126,13 @@ func consume(consumer sarama.Consumer) (chan *sarama.ConsumerMessage, []chan Log
 		fmt.Println("Error consuming: ", err.Error())
 	}
 
+	fmt.Println("Partitions" + string(partitionList))
+
 	messages := make(chan *sarama.ConsumerMessage, 256)
 	channels := make([]chan LogEntry, len(partitionList))
 	initialOffset := sarama.OffsetOldest //offset to start reading message from
 	for i, partition := range partitionList {
+		fmt.Println("Partition " + string(i))
 		pc, _ := consumer.ConsumePartition(topic, partition, initialOffset)
 		go func(pc sarama.PartitionConsumer) {
 			channels[i] = make(chan LogEntry)
