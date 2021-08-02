@@ -29,14 +29,14 @@ const (
 
 func initProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 
-	keypair, err := tls.LoadX509KeyPair("C:\\Users\\sdd\\Downloads\\_VPN_KEYS\\Kafka\\service.cert",
-		"C:\\Users\\sdd\\Downloads\\_VPN_KEYS\\Kafka\\service.key")
+	keypair, err := tls.LoadX509KeyPair("C:\\Users\\d.smirnov\\Downloads\\_VPN_KEYS\\Kafka\\service.cert",
+		"C:\\Users\\d.smirnov\\Downloads\\_VPN_KEYS\\Kafka\\service.key")
 	if err != nil {
 		log.Println(err)
 		return nil, nil, err
 	}
 
-	caCert, err := ioutil.ReadFile("C:\\Users\\sdd\\Downloads\\_VPN_KEYS\\Kafka\\ca.pem")
+	caCert, err := ioutil.ReadFile("C:\\Users\\d.smirnov\\Downloads\\_VPN_KEYS\\Kafka\\ca.pem")
 	if err != nil {
 		log.Println(err)
 		return nil, nil, err
@@ -115,8 +115,9 @@ func consume(consumer sarama.Consumer) chan *sarama.ConsumerMessage {
 
 	messages := make(chan *sarama.ConsumerMessage, 256)
 	initialOffset := sarama.OffsetOldest //offset to start reading message from
-	for _, partition := range partitionList {
+	for i, partition := range partitionList {
 		pc, _ := consumer.ConsumePartition(topic, partition, initialOffset)
+		fmt.Println("Consumer goroutine #" + string(i))
 		go func(pc sarama.PartitionConsumer) {
 			for message := range pc.Messages() {
 				messages <- message //or call a function that writes to disk
