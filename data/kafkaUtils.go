@@ -90,7 +90,7 @@ func InitProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 	return producer, consumer, err
 }
 
-func Publish(logEntry LogEntry, producer sarama.SyncProducer) {
+func Publish(logEntry LogEntry, producer sarama.SyncProducer) int64 {
 
 	byteLogMessage, err := json.Marshal(logEntry)
 	if err != nil {
@@ -112,6 +112,7 @@ func Publish(logEntry LogEntry, producer sarama.SyncProducer) {
 
 	fmt.Println("Partition: ", p)
 	fmt.Printf("Offset: %d -> %d\n", o, o+1)
+	return o+1
 }
 
 func Consume(consumer sarama.Consumer) chan *sarama.ConsumerMessage {
@@ -196,7 +197,15 @@ func Merge(cs []chan *LogEntry) chan *LogEntry {
 
 func FinishProcessing(resultCh chan *LogEntry){
 
-	for logEntry := range resultCh {
-		fmt.Println("Finisher: saved to MongoDB: log entry with createTime = ", logEntry.CreateDate.Time().String())
+	var logEntry *LogEntry
+	logEntries := make([]LogEntry, mongoBufferSize)
+
+	for{
+		for i, _ := range logEntries {
+			logEntry = <- resultCh
+			logEntries[i] = *logEntry
+		}
+		InsertManyLogEntries(logEntries)
+		fmt.Printf("Finisher: saved %d entries to MongoDB\n", mongoBufferSize)
 	}
 }

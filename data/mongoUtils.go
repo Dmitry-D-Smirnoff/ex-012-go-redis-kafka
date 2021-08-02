@@ -22,6 +22,7 @@ func GetLogCollection() (collection *mongo.Collection){
 }
 
 func ConnectMongoDB(){
+	fmt.Println("Current MongoDB Connection: " + os.Getenv("mongodb_uri"))
 	// Create client
 	client, err := mongo.NewClient(options.Client().
 		ApplyURI(os.Getenv("mongodb_uri")))

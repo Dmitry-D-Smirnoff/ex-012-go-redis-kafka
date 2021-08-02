@@ -3,6 +3,7 @@ package util
 import (
 	"encoding/json"
 	"ex-012-go-redis-kafka/data"
+	"fmt"
 	"github.com/Shopify/sarama"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"net/http"
@@ -25,7 +26,7 @@ var currentProducer sarama.SyncProducer
 
 
 
-var GetLastLogEntries = func(w http.ResponseWriter, r *http.Request) {
+var GetLogNew = func(w http.ResponseWriter, r *http.Request) {
 
 	redisValue1 := data.LogEntry{
 		Operation:  "Log Scan",
@@ -33,9 +34,9 @@ var GetLastLogEntries = func(w http.ResponseWriter, r *http.Request) {
 		EntityName: "Not Needed",
 		CreateDate: primitive.NewDateTimeFromTime(time.Now()),
 	}
-	data.Publish(redisValue1, currentProducer)
+	logNumber := data.Publish(redisValue1, currentProducer)
 
-	resp := Message(true, "success")
+	resp := Message(true, fmt.Sprintf("successfully added to Kafka log #%d", logNumber))
 	Respond(w, resp)
 }
 

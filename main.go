@@ -5,29 +5,26 @@ import (
 	"ex-012-go-redis-kafka/util"
 	"fmt"
 	"github.com/gorilla/mux"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"github.com/joho/godotenv"
+	"log"
 	"net/http"
 	"os"
-	"time"
 )
+
+func init() {
+	// Loads the .env file using godotenv.
+	// Throws an error is the file cannot be found.
+	if err := godotenv.Load(); err != nil {
+		log.Print("No .env file found")
+	}
+}
 
 func main() {
 
 	data.ConnectMongoDB()
 	defer data.DisconnectMongoDB()
-
-	logs := []data.LogEntry{
-		{"Log Scan", "Test", "Test", primitive.NewDateTimeFromTime(time.Now())},
-		{"Log Scan", "Test", "Test", primitive.NewDateTimeFromTime(time.Now())},
-		{"Log Scan", "Test", "Test", primitive.NewDateTimeFromTime(time.Now())},
-		{"Log Scan", "Test", "Test", primitive.NewDateTimeFromTime(time.Now())},
-		{"Log Scan", "Test", "Test", primitive.NewDateTimeFromTime(time.Now())},
-	}
-	data.InsertManyLogEntries(logs)
-
-
 	redisClient := data.InitRedis()
-	// create producer
+
 	producer, consumer, err := data.InitProducer()
 	if err != nil {
 		fmt.Println("Error producer: ", err.Error())
@@ -45,12 +42,12 @@ func main() {
 	go data.FinishProcessing(data.Merge(processingChannels))
 
 	router := mux.NewRouter()
-	router.HandleFunc("/api/log/recent/{limit}", util.GetLastLogEntries).Methods("GET")
+	router.HandleFunc("/api/log/new", util.GetLogNew).Methods("GET")
 	router.NotFoundHandler = http.HandlerFunc(util.HandleNotFound)
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8000" //localhost
+		port = "8012" //localhost
 	}
 	err = http.ListenAndServe(":" + port, router)
 	if err != nil {
