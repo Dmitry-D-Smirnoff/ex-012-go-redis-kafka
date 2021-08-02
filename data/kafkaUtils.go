@@ -9,6 +9,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"io/ioutil"
 	"log"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -20,18 +22,19 @@ type LogEntry struct {
 	CreateDate primitive.DateTime `bson:"create_date" json:"createDate"`
 }
 
-const (
-	kafkaConn = "ex-012-go-redis-data-dmitry-8002.aivencloud.com:25925"
-	topic = "message-log"
-	mongoBufferSize = 5
-)
+var topic string
 
-func InitProducer()(sarama.SyncProducer, sarama.Consumer, error) {
+func InitKafka()(sarama.SyncProducer, sarama.Consumer, error) {
+
+	topic = os.Getenv("kafka_topic")
+	if topic == ""{
+		panic("No topic specified!")
+	}
 
 	//TODO: if fails restore 3 paths to: C:\Users\d.smirnov\Downloads\_VPN_KEYS\Kafka\
 	//serviceCertPath, err := filepath.Abs("./service.cert")
 	//fmt.Println(serviceCertPath)
-	keypair, err := tls.LoadX509KeyPair("service.cert",
+	keyPair, err := tls.LoadX509KeyPair("service.cert",
 		"service.key")
 	if err != nil {
 		log.Println(err)
@@ -47,7 +50,7 @@ func InitProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 	caCertPool.AppendCertsFromPEM(caCert)
 
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{keypair},
+		Certificates: []tls.Certificate{keyPair},
 		RootCAs: caCertPool,
 	}
 
@@ -58,6 +61,7 @@ func InitProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 	config.Net.TLS.Config = tlsConfig
 	config.Version = sarama.V0_10_2_0
 
+	//kafka URI = "ex-012-go-redis-data-dmitry-8002.aivencloud.com:25925"
 	// init producer
 	// AIVEN BROKER 1:
 	//    SSL://35.228.129.49:25925,
@@ -77,12 +81,20 @@ func InitProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 	//    INTERNAL://[fda7:a938:5bfe:5fa6::c]:25932,
 	//    SSL_PUBLIC://35.228.15.106:25935,
 	//    SASL_SSL://35.228.15.106:25936
-	brokers := []string{"35.228.129.49:25925","35.228.158.97:25925","35.228.15.106:25925"}
+	//
+	//brokers := []string{"35.228.129.49:25925","35.228.158.97:25925","35.228.15.106:25925"}
+	brokerEnv := os.Getenv("kafka_brokers")
+	if brokerEnv == ""{
+		panic("No brokers specified!")
+	}
+	brokers := strings.Split(brokerEnv, ",")
+	fmt.Printf("Current Kafka Connection: to %d Brokers: %s\n", len(brokers), brokerEnv)
+
 	producer, err := sarama.NewSyncProducer(brokers, config)
 	if err != nil {
 		panic(err)
 	}
-	//TODO: For async:
+	//TODO: For async: IS IT NEEDED?
 	//producer, err := sarama.NewAsyncProducer(brokers, config)
 
 	consumer, err := sarama.NewConsumer(brokers, config)
@@ -170,7 +182,7 @@ func ProcessMessages(redisCl *LogRedisClient, messageCh chan *sarama.ConsumerMes
 
 func Merge(cs []chan *LogEntry) chan *LogEntry {
 	var wg sync.WaitGroup
-	out := make(chan *LogEntry, mongoBufferSize)
+	out := make(chan *LogEntry, GetMongoBufferSize())
 
 	// Start an output goroutine for each input channel in cs.  output
 	// copies values from c to out until c is closed, then calls wg.Done.
@@ -198,14 +210,15 @@ func Merge(cs []chan *LogEntry) chan *LogEntry {
 func FinishProcessing(resultCh chan *LogEntry){
 
 	var logEntry *LogEntry
-	logEntries := make([]LogEntry, mongoBufferSize)
+	size := GetMongoBufferSize()
+	logEntries := make([]LogEntry, size)
 
 	for{
 		for i, _ := range logEntries {
 			logEntry = <- resultCh
 			logEntries[i] = *logEntry
 		}
+		fmt.Printf("Finisher: is saving %d entries to MongoDB -> ", size)
 		InsertManyLogEntries(logEntries)
-		fmt.Printf("Finisher: saved %d entries to MongoDB\n", mongoBufferSize)
 	}
 }

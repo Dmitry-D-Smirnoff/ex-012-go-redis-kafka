@@ -2,7 +2,9 @@ package data
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/go-redis/redis"
+	"os"
 	"time"
 )
 
@@ -16,9 +18,10 @@ type LogRedisClient struct {
 
 //GetClient get the redis client
 func InitRedis() *LogRedisClient {
+	fmt.Println("Current Redis Connection: " + os.Getenv("redis_uri") + os.Getenv("redis_pass"))
 	c := redis.NewClient(&redis.Options{
-		Addr:     "redis-12817.c275.us-east-1-4.ec2.cloud.redislabs.com:12817", // host:port of the redis server
-		Password: "sddsddsdd", // no password set
+		Addr:     os.Getenv("redis_uri"), // host:port of the redis server
+		Password: os.Getenv("redis_pass"), // no password set
 		DB:       0,  // use default DB
 	})
 

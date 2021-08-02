@@ -12,8 +12,6 @@ import (
 )
 
 func init() {
-	// Loads the .env file using godotenv.
-	// Throws an error is the file cannot be found.
 	if err := godotenv.Load(); err != nil {
 		log.Print("No .env file found")
 	}
@@ -25,7 +23,7 @@ func main() {
 	defer data.DisconnectMongoDB()
 	redisClient := data.InitRedis()
 
-	producer, consumer, err := data.InitProducer()
+	producer, consumer, err := data.InitKafka()
 	if err != nil {
 		fmt.Println("Error producer: ", err.Error())
 		os.Exit(1)
@@ -53,43 +51,5 @@ func main() {
 	if err != nil {
 		fmt.Print(err)
 	}
-/*
 
-	if len(os.Args) > 2{
-		if os.Args[1] == "populate"{
-			numRecords,err := strconv.Atoi(os.Args[2])
-			if err!=nil{
-				fmt.Println( "Could not convert arguments provided, hence creating four entries")
-				numRecords = 4
-			}
-			redis.Populate(numRecords)
-			return
-		}
-	}
-
-	router := mux.NewRouter()
-	router.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Pong !!\n"))
-	})
-	router.HandleFunc("/detail/{id}", VideoHandler)
-	router.HandleFunc("/like/{id}", LikeHandler)
-	router.HandleFunc("/popular/{num[0-9]+}", PopularHandler)
-	http.Handle("/", router)
-	banner.Print("video-feed")
-
-	log.Println("Initializing redis pool: ")
-	redis.Init()
-	go data.InitProducer()
-	go data.Consumer([]string{"likes", "upload"})
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "4000" //localhost
-	}
-	err := http.ListenAndServe(":" + port, nil)
-	if err != nil {
-		log.Printf("Server error %v :", err)
-	}
-	log.Println("Video-Feed Listening on :4000")
-   */
 }

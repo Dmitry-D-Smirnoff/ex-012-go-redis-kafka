@@ -6,9 +6,24 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"os"
+	"strconv"
 )
 
+var mongoBufferSize int
+
 var currentClient *mongo.Client
+
+func GetMongoBufferSize() int{
+	if mongoBufferSize == 0{
+		size, err := strconv.Atoi(os.Getenv("mongo_buffer_size"))
+		if err != nil{
+			mongoBufferSize = 1
+		}else{
+			mongoBufferSize = size
+		}
+	}
+	return mongoBufferSize
+}
 
 func GetLogCollection() (collection *mongo.Collection){
 	if currentClient == nil {
@@ -67,6 +82,6 @@ func InsertManyLogEntries(logEntries []LogEntry){
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("Inserted multiple documents: ", insertManyResult.InsertedIDs)
+	fmt.Printf("SUCCESS: Inserted %d documents in MongoDB\n", len(insertManyResult.InsertedIDs))
 }
 
