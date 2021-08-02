@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -34,7 +35,7 @@ func initProducer()(sarama.SyncProducer, sarama.Consumer, error) {
 	//TODO: if fails restore 3 paths to: C:\Users\d.smirnov\Downloads\_VPN_KEYS\Kafka\
 	//serviceCertPath, err := filepath.Abs("./service.cert")
 	//fmt.Println(serviceCertPath)
-	keypair, err := tls.LoadX509KeyPair("service.cert",
+	keypair, err := tls.LoadX509KeyPair("./service.cert",
 		"service.key")
 	if err != nil {
 		log.Println(err)
@@ -117,43 +118,78 @@ func publish(logEntry LogEntry, producer sarama.SyncProducer) {
 	fmt.Printf("Offset: %d -> %d\n", o, o+1)
 }
 
-func consume(consumer sarama.Consumer) chan *sarama.ConsumerMessage {
+func consume(consumer sarama.Consumer) (chan *sarama.ConsumerMessage, []chan LogEntry) {
 
 	partitionList, err := consumer.Partitions(topic) //get all partitions
 	if err != nil {
 		fmt.Println("Error consuming: ", err.Error())
 	}
 
+	fmt.Println("Partitions" + string(partitionList))
+
 	messages := make(chan *sarama.ConsumerMessage, 256)
+	channels := make([]chan LogEntry, len(partitionList))
 	initialOffset := sarama.OffsetOldest //offset to start reading message from
 	for i, partition := range partitionList {
+		fmt.Println("Partition " + string(i))
 		pc, _ := consumer.ConsumePartition(topic, partition, initialOffset)
-		fmt.Println("Consumer goroutine #" + string(i))
 		go func(pc sarama.PartitionConsumer) {
+			channels[i] = make(chan LogEntry)
 			for message := range pc.Messages() {
+				var content LogEntry
+				err := json.Unmarshal(message.Value, &content)
+				if err != nil {
+					content = LogEntry{
+						Operation:  "BadMessage",
+						AppEntity:  "NoEntity",
+						EntityName: string(message.Value),
+						CreateDate: primitive.NewDateTimeFromTime(time.Now()),
+					}
+				}
+				channels[i] <- content
 				messages <- message //or call a function that writes to disk
 			}
 		}(pc)
 	}
 
-	return messages
+	return messages, channels
 }
 
-func getTimeKey() string{
-	return "time."+time.Now().Format("20060102.150405.000000000")
+func merge(cs []chan LogEntry) <-chan LogEntry {
+	var wg sync.WaitGroup
+	out := make(chan LogEntry, mongoBufferSize)
+
+	// Start an output goroutine for each input channel in cs.  output
+	// copies values from c to out until c is closed, then calls wg.Done.
+	output := func(c <-chan LogEntry) {
+		for n := range c {
+			out <- n
+		}
+		wg.Done()
+	}
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go output(c)
+	}
+
+	// Start a goroutine to close out once all the output goroutines are
+	// done.  This must start after the wg.Add call.
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+	return out
 }
 
 func main() {
 
-	var lastKey string
-
+	redisKey1 := "time."+time.Now().Format("20060102.150405.000000000")
 	redisValue1 := LogEntry{
 		Operation:  "Update",
 		AppEntity:  "Account",
 		EntityName: "Jenny",
 		CreateDate: primitive.NewDateTimeFromTime(time.Now()),
 	}
-	redisClient := util.InitRedis()
 
 	// create producer
 	producer, consumer, err := initProducer()
@@ -164,45 +200,38 @@ func main() {
 
 	publish(redisValue1, producer)
 
-	messages := consume(consumer)
+	messages, channels := consume(consumer)
 	for message := range messages{
 		switch message.Topic {
 		case topic:
-			fmt.Print(string(message.Value))
-			var content LogEntry
-			err := json.Unmarshal(message.Value, &content)
-			if err != nil {
-				content = LogEntry{
-					Operation:  "BadMessage",
-					AppEntity:  "NoEntity",
-					EntityName: string(message.Value),
-					CreateDate: primitive.NewDateTimeFromTime(time.Now()),
-				}
-			}
-			lastKey = getTimeKey()
-			err = redisClient.SetKey(lastKey, &redisValue1, time.Hour*3000)
-			if err != nil {
-				log.Fatalf("Error: %v", err.Error())
-			}
-			fmt.Println(" -> saved to Redis with key = " + lastKey)
-
+			fmt.Println(string(message.Value))
 			break
 			// ...
 		}
 
 	}
-	close(messages)
+
+	resultChannel := merge(channels)
+	for logEntry := range resultChannel{
+		fmt.Println(logEntry.EntityName)
+	}
 
 
-	fmt.Println("LastTimeKey = " + lastKey)
-	lastValue := LogEntry{}
-	err = redisClient.GetKey(lastKey, &lastValue)
+	redisClient := util.InitRedis()
+
+	err = redisClient.SetKey(redisKey1, &redisValue1, time.Hour*3000)
 	if err != nil {
 		log.Fatalf("Error: %v", err.Error())
 	}
-	fmt.Println("Got last value from Redis with: name=" + lastValue.EntityName + ", time = " + string(lastValue.CreateDate))
-	fmt.Println("Update: " + lastValue.AppEntity)
-	fmt.Println("Email: " + lastValue.EntityName)
+
+	value2 := LogEntry{}
+	err = redisClient.GetKey(redisKey1, &value2)
+	if err != nil {
+		log.Fatalf("Error: %v", err.Error())
+	}
+
+	fmt.Println("Update: " + value2.AppEntity)
+	fmt.Println("Email: " + value2.EntityName)
 
 	router := mux.NewRouter()
 	router.HandleFunc("/api/log/recent/{limit}", util.GetLastLogEntries).Methods("GET")
